@@ -1,0 +1,93 @@
+{% extends "house_counter/base.html" %}
+
+{% block title %}Results - {{ street_search.query }}{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="card shadow">
+                <div class="card-header bg-success text-white">
+                    <h2 class="mb-0">Results: {{ street_search.query }}</h2>
+                </div>
+                <div class="card-body">
+                    {% if street_search.status == 'processing' %}
+                    <div class="alert alert-warning" id="processing-alert">
+                        <h3><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...</h3>
+                        <p id="processing-message">{{ street_search.processing_message }}</p>
+                        <div class="progress mt-2">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info">
+                        <h3>Total Trees Found: {{ street_search.total_trees }}</h3>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="row">
+                        {% for image in images %}
+                            <div class="col-md-6 mb-4">
+                                <div class="card">
+                                    <img src="{{ MEDIA_URL }}{{ image.image_path }}" class="card-img-top" alt="Street View Image">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Location {{ image.sequence_number|add:1 }}</h5>
+                                        <p class="card-text">
+                                            <strong>Trees detected:</strong> {{ image.tree_count }}<br>
+                                            <strong>Coordinates:</strong> {{ image.latitude }}, {{ image.longitude }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="mt-4">
+                        <a href="{% url 'home' %}" class="btn btn-primary">Back to Home</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if street_search.status == 'processing' %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const processingAlert = document.getElementById('processing-alert');
+        const processingMessage = document.getElementById('processing-message');
+        const searchId = '{{ street_search.id }}';
+        let checkInterval;
+
+        // Function to check search status
+        function checkStatus() {
+            fetch(`/search-status/${searchId}/`)
+                .then(response => response.json())
+                .then(data => {
+                    // Update the processing message
+                    if (processingMessage) {
+                        processingMessage.textContent = data.processing_message || 'Processing...';
+                    }
+
+                    // If processing is complete, refresh the page to show results
+                    if (data.status === 'completed') {
+                        clearInterval(checkInterval);
+                        window.location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking status:', error);
+                });
+        }
+
+        // Check status every 2 seconds
+        checkInterval = setInterval(checkStatus, 2000);
+
+        // Initial check
+        checkStatus();
+    });
+</script>
+{% endif %}
+{% endblock %}

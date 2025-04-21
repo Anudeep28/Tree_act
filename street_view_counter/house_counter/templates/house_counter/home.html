@@ -1,0 +1,90 @@
+{% extends "house_counter/base.html" %}
+
+{% block title %}Street View Tree Counter{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="mb-0">Street View Tree Counter</h2>
+                </div>
+                <div class="card-body">
+                    <p class="lead">Enter a street name to count trees using Google Street View and AI</p>
+                    
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-group mb-3">
+                            {{ form.query.label_tag }}
+                            <input type="text" name="{{ form.query.name }}" class="form-control" id="id_{{ form.query.name }}" {% if form.query.value %}value="{{ form.query.value }}"{% endif %}>
+                            {% if form.query.errors %}
+                                <div class="text-danger">{{ form.query.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="count-trees-btn">Count Trees</button>
+                    </form>
+                </div>
+                
+                <!-- Processing message container (hidden by default) -->
+                <div id="processing-container" class="mt-3 d-none">
+                    <div class="alert alert-info">
+                        <h5><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing your request...</h5>
+                        <div id="processing-steps" class="mt-2">
+                            <p>Initializing...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if recent_searches %}
+            <div class="card mt-4 shadow">
+                <div class="card-header bg-secondary text-white">
+                    <h3 class="mb-0">Recent Searches</h3>
+                </div>
+                <div class="card-body">
+                    <div class="list-group">
+                        {% for search in recent_searches %}
+                            <a href="{% url 'results' search_id=search.id %}" class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">{{ search.query }}</h5>
+                                    <small>{{ search.created_at|date:"M d, Y" }}</small>
+                                </div>
+                                <p class="mb-1">Found {{ search.total_trees }} trees</p>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        const processingContainer = document.getElementById('processing-container');
+        const processingSteps = document.getElementById('processing-steps');
+        const countTreesBtn = document.getElementById('count-trees-btn');
+        
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                // Show processing container
+                processingContainer.classList.remove('d-none');
+                countTreesBtn.disabled = true;
+                
+                // Initial message
+                processingSteps.innerHTML = '<p>Initializing search...</p>';
+                
+                // Store form data to localStorage for status tracking after redirect
+                const formData = new FormData(form);
+                const query = formData.get('query');
+                localStorage.setItem('last_search_query', query);
+            });
+        }
+    });
+</script>
+{% endblock %}
