@@ -98,36 +98,65 @@ def process_street(request, search_id):
     street_search.save()
     
     # Use Google Directions API to get points along the actual street path
-    directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={start_lat},{start_lng}&destination={end_lat},{end_lng}&key={google_api_key}"
+    street_search.processing_message = "Getting directions for the road..."
+    street_search.save()
+    
+    # Format the query to ensure it's recognized as a street
+    formatted_query = street_search.query
+    if not any(word in formatted_query.lower() for word in ['street', 'road', 'avenue', 'boulevard', 'lane', 'drive']):
+        formatted_query += " Street"
+    
+    # Add city or country if not present to improve geocoding
+    if ',' not in formatted_query:
+        formatted_query += ", Pune"  # Default to London if no city specified
+        
+    # Use the street name to get directions rather than just start/end coordinates
+    # This ensures we follow the actual road path
+    directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={formatted_query}&destination={formatted_query}&key={google_api_key}"
     directions_response = requests.get(directions_url)
     directions_data = directions_response.json()
     
-    # Extract route points
-    route_points = []
-    if directions_data.get('status') == 'OK' and directions_data.get('routes'):
-        # Get the first route
-        route = directions_data['routes'][0]
+    # Check if we got a valid route
+    if directions_data['status'] != 'OK' or not directions_data.get('routes'):
+        # Try a different approach by using the geocoded coordinates
+        street_search.processing_message = "Trying alternative direction method..."
+        street_search.save()
+        directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={start_lat},{start_lng}&destination={end_lat},{end_lng}&key={google_api_key}"
+        directions_response = requests.get(directions_url)
+        directions_data = directions_response.json()
         
-        # Get the polyline that represents the route
-        if 'overview_polyline' in route and 'points' in route['overview_polyline']:
-            # Decode the polyline to get a list of lat/lng points
-            try:
-                # We'll need to import the polyline library
-                import polyline
-                points = polyline.decode(route['overview_polyline']['points'])
-                route_points = points
-            except ImportError:
-                # If polyline library is not available, fall back to steps
-                street_search.processing_message = "Using route steps (polyline library not available)..."
-                street_search.save()
-                
-                # Extract points from each step in the route
-                for leg in route['legs']:
-                    for step in leg['steps']:
-                        start_point = (step['start_location']['lat'], step['start_location']['lng'])
-                        end_point = (step['end_location']['lat'], step['end_location']['lng'])
-                        route_points.append(start_point)
-                        route_points.append(end_point)
+        # Extract route points
+        route_points = []
+        if directions_data.get('status') == 'OK' and directions_data.get('routes'):
+            # Get the first route
+            route = directions_data['routes'][0]
+            
+            # Extract points from the route
+            route_points = extract_route_points(directions_data)
+        else:
+            # If still no valid route, fallback to straight line interpolation
+            street_search.processing_message = "Using straight line interpolation for the road..."
+            street_search.save()
+            num_points = 10  # Number of points to sample along the street
+            route_points = []
+            
+            for i in range(num_points):
+                # Interpolate between start and end points
+                progress = i / (num_points - 1)
+                point_lat = start_lat + progress * (end_lat - start_lat)
+                point_lng = start_lng + progress * (end_lng - start_lng)
+                route_points.append((point_lat, point_lng))
+    else:
+        # Extract points from the route
+        route_points = extract_route_points(directions_data)
+        
+    # Save the route information to the StreetSearch model
+    if route_points:
+        street_search.start_lat = route_points[0][0]
+        street_search.start_lng = route_points[0][1]
+        street_search.end_lat = route_points[-1][0]
+        street_search.end_lng = route_points[-1][1]
+        street_search.save()
     
     # If we couldn't get route points, create evenly spaced points along a straight line
     if not route_points:
@@ -141,9 +170,63 @@ def process_street(request, search_id):
             point_lng = start_lng + t * (end_lng - start_lng)
             route_points.append((point_lat, point_lng))
     
-    # Select a subset of points to ensure we have a reasonable number of images
-    # We want about 5-10 points along the route
-    target_points = min(10, len(route_points))
+    # Filter out points that are too close to each other
+    filtered_points = []
+    min_distance = 0.00005  # Approximately 5 meters in lat/lng units - reduced to get more points
+    
+    for point in route_points:
+        # Only add this point if it's not too close to any point we've already added
+        if not filtered_points or all(
+            math.sqrt((point[0] - p[0])**2 + (point[1] - p[1])**2) > min_distance 
+            for p in filtered_points
+        ):
+            filtered_points.append(point)
+    
+    # If we have too few points, try to generate more by interpolation
+    if len(filtered_points) < 5:
+        # Create more points by interpolation between existing points
+        more_points = []
+        if len(filtered_points) >= 2:
+            for i in range(len(filtered_points) - 1):
+                p1 = filtered_points[i]
+                p2 = filtered_points[i + 1]
+                # Add 3 intermediate points between each pair
+                for j in range(1, 4):
+                    t = j / 4.0
+                    new_lat = p1[0] + t * (p2[0] - p1[0])
+                    new_lng = p1[1] + t * (p2[1] - p1[1])
+                    more_points.append((new_lat, new_lng))
+            
+            # Add the interpolated points
+            filtered_points.extend(more_points)
+        else:
+            # If we have only one point or none, create points in a small grid around it
+            if filtered_points:
+                center = filtered_points[0]
+                offsets = [-0.0002, -0.0001, 0, 0.0001, 0.0002]  # ~20m increments
+                for lat_offset in offsets:
+                    for lng_offset in offsets:
+                        if lat_offset == 0 and lng_offset == 0:
+                            continue  # Skip the center point (already in the list)
+                        new_lat = center[0] + lat_offset
+                        new_lng = center[1] + lng_offset
+                        more_points.append((new_lat, new_lng))
+                filtered_points.extend(more_points)
+            else:
+                # If no points at all, use the original geocoded location
+                filtered_points = [(lat, lng)]
+                # And add points in a grid around it
+                offsets = [-0.0002, -0.0001, 0.0001, 0.0002]  # ~20m increments
+                for lat_offset in offsets:
+                    for lng_offset in offsets:
+                        new_lat = lat + lat_offset
+                        new_lng = lng + lng_offset
+                        filtered_points.append((new_lat, new_lng))
+    
+    # Make sure we have a reasonable number of points (5-10)
+    route_points = filtered_points
+    # We want at least 5 points, but no more than 10
+    target_points = min(10, max(5, len(route_points)))
     if len(route_points) > target_points:
         # Take evenly spaced points
         step = len(route_points) // target_points
@@ -155,6 +238,9 @@ def process_street(request, search_id):
     # Get images for each point along the route
     images = []
         
+    # Default heading (north) in case there's only one point
+    default_heading = 0
+    
     for i, point in enumerate(route_points):
         point_lat, point_lng = point
         
@@ -171,9 +257,15 @@ def process_street(request, search_id):
             
             # Normalize heading to 0-360 degrees
             heading = (heading + 360) % 360
-        else:
+            # Save this heading for potential use by the last point
+            default_heading = heading
+        elif i > 0 and len(route_points) > 1:
             # For the last point, use the heading from the previous segment
-            heading = heading  # Use the last calculated heading
+            # heading is already set from the previous iteration
+            pass
+        else:
+            # If there's only one point or this is the first point and we can't calculate heading
+            heading = default_heading
         
         # Capture both left and right side views at each position
         # Adjust headings to be perpendicular to the street direction
@@ -197,12 +289,37 @@ def process_street(request, search_id):
             filename = f"streetview_{i}_{view['side']}_{uuid.uuid4().hex}.jpg"
             file_path = search_dir / filename
             
+            # First check if Street View is available at this location
+            # Use the metadata API to check if imagery is available
+            metadata_params = {
+                'location': f'{point_lat},{point_lng}',
+                'key': os.environ.get('GOOGLE_STREET_VIEW_API_KEY')
+            }
+            metadata_url = f"https://maps.googleapis.com/maps/api/streetview/metadata?{requests.compat.urlencode(metadata_params)}"
+            metadata_response = requests.get(metadata_url)
+            metadata = metadata_response.json()
+            
+            # Skip this point if Street View imagery is not available
+            if metadata.get('status') != 'OK':
+                print(f"Street View not available at {point_lat},{point_lng}")
+                continue
+                
+            # If we have a panorama ID from the metadata, use it to ensure we get a unique image
+            pano_id = metadata.get('pano_id', '')
+            if pano_id:
+                params[0]['pano'] = pano_id
+                
             # Get street view image
             results = google_streetview.api.results(params)
+            
+            # Clear any existing .jpg files in the directory before downloading
+            for existing_file in search_dir.glob('gsv_*.jpg'):
+                os.remove(existing_file)
+                
             results.download_links(str(search_dir))
             
             # Rename the downloaded file to our unique filename
-            downloaded_files = list(search_dir.glob('*.jpg'))
+            downloaded_files = list(search_dir.glob('gsv_*.jpg'))
             if downloaded_files and len(downloaded_files) > 0:
                 os.rename(downloaded_files[0], file_path)
                 
@@ -355,6 +472,92 @@ def results(request, search_id):
         'images': images,
         'MEDIA_URL': settings.MEDIA_URL
     })
+
+def extract_route_points(directions_data):
+    """Extract points from Google Directions API response"""
+    points = []
+    route = directions_data['routes'][0]
+    
+    # First try to use the overview_polyline for a more detailed path
+    if 'overview_polyline' in route and 'points' in route['overview_polyline']:
+        polyline_points = decode_polyline(route['overview_polyline']['points'])
+        # Add points at regular intervals along the polyline
+        if len(polyline_points) > 2:
+            points = polyline_points
+            return points
+    
+    # Fallback to extracting points from legs and steps
+    for leg in route['legs']:
+        # Add the starting point of the leg
+        leg_start = (leg['start_location']['lat'], leg['start_location']['lng'])
+        if not points or points[-1] != leg_start:  # Avoid duplicates
+            points.append(leg_start)
+        
+        for step in leg['steps']:
+            # Add the starting point of each step
+            step_start = (step['start_location']['lat'], step['start_location']['lng'])
+            if not points or points[-1] != step_start:  # Avoid duplicates
+                points.append(step_start)
+            
+            # Add intermediate points by polyline decoding if available
+            if 'polyline' in step and 'points' in step['polyline']:
+                polyline_points = decode_polyline(step['polyline']['points'])
+                # Only add a subset of points to avoid too many close points
+                if len(polyline_points) > 5:
+                    # Take every nth point
+                    n = len(polyline_points) // 5
+                    for i in range(0, len(polyline_points), n):
+                        p = polyline_points[i]
+                        if not points or points[-1] != p:  # Avoid duplicates
+                            points.append(p)
+                else:
+                    # If few points, add them all
+                    for p in polyline_points:
+                        if not points or points[-1] != p:  # Avoid duplicates
+                            points.append(p)
+            
+            # Add the ending point of each step
+            step_end = (step['end_location']['lat'], step['end_location']['lng'])
+            if not points or points[-1] != step_end:  # Avoid duplicates
+                points.append(step_end)
+        
+        # Add the ending point of the leg
+        leg_end = (leg['end_location']['lat'], leg['end_location']['lng'])
+        if not points or points[-1] != leg_end:  # Avoid duplicates
+            points.append(leg_end)
+    
+    return points
+
+def decode_polyline(polyline_str):
+    """Decode a Google Maps encoded polyline string into a list of lat/lng points"""
+    index, lat, lng = 0, 0, 0
+    coordinates = []
+    changes = {'lat': 0, 'lng': 0}
+
+    # Coordinates have variable length when encoded, so just keep reading
+    while index < len(polyline_str):
+        for unit in ['lat', 'lng']:
+            shift, result = 0, 0
+
+            while True:
+                byte = ord(polyline_str[index]) - 63
+                index += 1
+                result |= (byte & 0x1f) << shift
+                shift += 5
+                if not byte >= 0x20:
+                    break
+
+            if (result & 1):
+                changes[unit] = ~(result >> 1)
+            else:
+                changes[unit] = (result >> 1)
+
+        lat += changes['lat']
+        lng += changes['lng']
+
+        coordinates.append((lat / 100000.0, lng / 100000.0))
+
+    return coordinates
 
 def search_status(request, search_id):
     street_search = get_object_or_404(StreetSearch, id=search_id)
