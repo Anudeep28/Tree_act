@@ -101,55 +101,23 @@ def process_street(request, search_id):
     street_search.processing_message = "Getting directions for the road..."
     street_search.save()
     
-    # Format the query to ensure it's recognized as a street
-    formatted_query = street_search.query
-    if not any(word in formatted_query.lower() for word in ['street', 'road', 'avenue', 'boulevard', 'lane', 'drive']):
-        formatted_query += " Street"
-    
-    # Add city or country if not present to improve geocoding
-    if ',' not in formatted_query:
-        formatted_query += ", Pune"  # Default to London if no city specified
-        
-    # Use the street name to get directions rather than just start/end coordinates
-    # This ensures we follow the actual road path
-    directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={formatted_query}&destination={formatted_query}&key={google_api_key}"
+    # Use start and end coordinates for the route path
+    directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={start_lat},{start_lng}&destination={end_lat},{end_lng}&key={google_api_key}"
     directions_response = requests.get(directions_url)
     directions_data = directions_response.json()
     
-    # Check if we got a valid route
-    if directions_data['status'] != 'OK' or not directions_data.get('routes'):
-        # Try a different approach by using the geocoded coordinates
-        street_search.processing_message = "Trying alternative direction method..."
-        street_search.save()
-        directions_url = f"https://maps.googleapis.com/maps/api/directions/json?origin={start_lat},{start_lng}&destination={end_lat},{end_lng}&key={google_api_key}"
-        directions_response = requests.get(directions_url)
-        directions_data = directions_response.json()
-        
-        # Extract route points
-        route_points = []
-        if directions_data.get('status') == 'OK' and directions_data.get('routes'):
-            # Get the first route
-            route = directions_data['routes'][0]
-            
-            # Extract points from the route
-            route_points = extract_route_points(directions_data)
-        else:
-            # If still no valid route, fallback to straight line interpolation
-            street_search.processing_message = "Using straight line interpolation for the road..."
-            street_search.save()
-            num_points = 10  # Number of points to sample along the street
-            route_points = []
-            
-            for i in range(num_points):
-                # Interpolate between start and end points
-                progress = i / (num_points - 1)
-                point_lat = start_lat + progress * (end_lat - start_lat)
-                point_lng = start_lng + progress * (end_lng - start_lng)
-                route_points.append((point_lat, point_lng))
-    else:
-        # Extract points from the route
+    # Extract route points or fallback to straight line interpolation
+    if directions_data.get('status') == 'OK' and directions_data.get('routes'):
         route_points = extract_route_points(directions_data)
-        
+    else:
+        street_search.processing_message = "Using straight line interpolation for the road..."
+        street_search.save()
+        # Create 10 evenly spaced points along the street
+        route_points = [
+            (start_lat + i/9*(end_lat - start_lat), start_lng + i/9*(end_lng - start_lng))
+            for i in range(10)
+        ]
+    
     # Save the route information to the StreetSearch model
     if route_points:
         street_search.start_lat = route_points[0][0]
