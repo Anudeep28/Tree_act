@@ -55,7 +55,7 @@ ROOT_URLCONF = 'street_view_counter.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -125,3 +125,11 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Razorpay settings
+RAZORPAY_KEY_ID = 'rzp_test_Z5VEahibDOS05b'
+RAZORPAY_KEY_SECRET = 'wS9vYcMkUtYbylLLrS24N782'
+
+# Login and auth settings
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/'

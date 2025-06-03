@@ -12,9 +12,13 @@ from io import BytesIO
 import google_streetview.api
 from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseBadRequest
 from django.urls import reverse
-from .models import StreetSearch, StreetViewImage
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+import razorpay
+from .models import StreetSearch, StreetViewImage, Subscription
 from .forms import StreetSearchForm
 # import openai
 from pathlib import Path
@@ -25,13 +29,30 @@ from django.conf import settings
 load_dotenv()
 
 # Create your views here.
+
 def home(request):
     form = StreetSearchForm()
-    if request.method == 'POST':
-        form = StreetSearchForm(request.POST)
-        if form.is_valid():
-            street_search = form.save()
-            return redirect('process_street', search_id=street_search.id)
+    
+    # Check if user is authenticated and has active subscription before processing form
+    if request.method == 'POST' and request.user.is_authenticated:
+        # Check for active subscription
+        try:
+            subscription = Subscription.objects.get(user=request.user)
+            if subscription.is_active():
+                form = StreetSearchForm(request.POST)
+                if form.is_valid():
+                    street_search = form.save()
+                    return redirect('process_street', search_id=street_search.id)
+            else:
+                messages.error(request, 'You need an active subscription to perform searches.')
+                return redirect('subscribe')
+        except Subscription.DoesNotExist:
+            messages.error(request, 'You need a subscription to perform searches.')
+            return redirect('subscribe')
+    elif request.method == 'POST':
+        # If not authenticated, redirect to login
+        messages.info(request, 'Please login to perform searches.')
+        return redirect('login')
     
     # Get recent searches
     recent_searches = StreetSearch.objects.filter(status='completed').order_by('-created_at')[:5]
@@ -42,6 +63,7 @@ def home(request):
         'MEDIA_URL': settings.MEDIA_URL
     })
 
+@login_required
 def process_street(request, search_id):
     street_search = get_object_or_404(StreetSearch, id=search_id)
     street_search.processing_message = "Creating directories for image storage..."

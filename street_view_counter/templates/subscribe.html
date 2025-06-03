@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+{% block title %}Subscribe | Tree Act{% endblock %}
+
+{% block extra_css %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>
+    .subscribe-container {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+        padding: 2.5rem 2rem 2rem 2rem;
+        max-width: 350px;
+        width: 100%;
+        text-align: center;
+        margin: 3rem auto;
+    }
+    .desc {
+        color: #444;
+        font-size: 1.08em;
+        margin-bottom: 1.2em;
+    }
+    .price {
+        font-size: 2em;
+        color: #222;
+        margin-bottom: 1em;
+    }
+    #rzp-button {
+        background: #3399cc;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 1.1em;
+        padding: 0.8em 2em;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    #rzp-button:hover {
+        background: #267aa7;
+    }
+    .status {
+        margin-top: 1.2em;
+        font-size: 1em;
+        color: #3399cc;
+        display: none;
+    }
+    .spinner {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        border: 3px solid #eee;
+        border-top: 3px solid #3399cc;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 8px;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="subscribe-container">
+    <h2>Monthly Subscription</h2>
+    <div class="desc">Get full access to Tree Act for 30 days. Cancel anytime.</div>
+    <div class="price">₹299 <span style="font-size:0.5em; color:#888;">/month</span></div>
+    <button id="rzp-button">Pay with Razorpay</button>
+    <div id="status" class="status">
+        <span class="spinner"></span>
+        Processing your payment...
+    </div>
+    <div style="margin-top:2em; font-size:0.95em; color:#999;">
+        Secure payments powered by <b>Razorpay</b>.
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    var statusDiv = document.getElementById('status');
+    var options = {
+        "key": "{{ razorpay_key_id }}",
+        "amount": "29900", // 299 INR in paise
+        "currency": "INR",
+        "name": "Tree Act App",
+        "description": "Monthly Subscription",
+        "order_id": "{{ order_id }}",
+        "handler": function (response){
+            // Show spinner and status
+            statusDiv.style.display = 'block';
+            // On successful payment, POST to payment_success
+            fetch("/payment_success/", {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": '{{ csrf_token }}',
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(response)
+            }).then(res => {
+                if(res.ok) {
+                    window.location.href = "/";
+                } else {
+                    statusDiv.innerHTML = '<span style="color:red;">Payment verification failed. Please contact support.</span>';
+                }
+            });
+        },
+        "prefill": {
+            "name": "{{ user.username }}",
+            "email": "{{ user.email }}"
+        },
+        "theme": {
+            "color": "#3399cc"
+        }
+    };
+    var rzp1 = new Razorpay(options);
+    document.getElementById('rzp-button').onclick = function(e){
+        rzp1.open();
+        e.preventDefault();
+    }
+</script>
+{% endblock %}
+</body>
+</html>

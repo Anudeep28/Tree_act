@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block title %}Error | Tree Act{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Error</h2>
+    <div class="alert alert-danger">
+        {{ message }}
+    </div>
+    <a href="{% url 'home' %}" class="btn">Return to Home</a>
+</div>
+{% endblock %}

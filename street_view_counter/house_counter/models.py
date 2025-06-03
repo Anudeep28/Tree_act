@@ -1,4 +1,7 @@
 from django.db import models
+from django.contrib.auth.models import User
+from django.utils import timezone
+from datetime import timedelta
 from django.utils import timezone
 
 class StreetSearch(models.Model):
@@ -27,3 +30,19 @@ class StreetViewImage(models.Model):
     
     def __str__(self):
         return f"Image {self.sequence_number} for {self.street_search.query}"
+
+class Subscription(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField(default=timezone.now)
+    active = models.BooleanField(default=False)
+
+    def activate(self):
+        self.start_date = timezone.now()
+        self.end_date = self.start_date + timedelta(days=30)
+        self.active = True
+        self.save()
+
+    def is_active(self):
+        return self.active and self.end_date > timezone.now()
+

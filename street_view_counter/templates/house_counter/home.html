@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+
+{% block title %}Home | Tree Act{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>Welcome to Tree Act</h1>
+    <p class="lead">Count the trees in your neighborhood with our AI-powered street view analysis.</p>
+
+    {% if user.is_authenticated %}
+        {% if user.subscription.is_active %}
+            <div class="alert alert-success">
+                Your subscription is active until {{ user.subscription.end_date|date:"F j, Y" }}
+            </div>
+            <div class="search-form" style="margin-top: 2rem;">
+                <h2>Start a new search</h2>
+                <form method="post" id="search-form">
+                    {% csrf_token %}
+                    <div class="form-group">
+                        <label for="{{ form.query.id_for_label }}">Enter a street address:</label>
+                        {{ form.query }}
+                    </div>
+                    <button type="submit" class="btn" id="search-button">Search</button>
+                    <div id="loading-spinner" class="spinner-container" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Processing your search...</p>
+                    </div>
+                </form>
+            </div>
+        {% else %}
+            <div class="alert alert-danger">
+                You need an active subscription to use Tree Act.
+            </div>
+            <a href="{% url 'subscribe' %}" class="btn">Subscribe Now</a>
+        {% endif %}
+    {% else %}
+        <div class="auth-buttons" style="margin-top: 2rem;">
+            <a href="{% url 'login' %}" class="btn">Login</a>
+            <a href="{% url 'register' %}" class="btn" style="background-color: #28a745; margin-left: 1rem;">Register</a>
+        </div>
+    {% endif %}
+</div>
+
+{% if recent_searches %}
+<div class="card" style="margin-top: 2rem;">
+    <h2>Recent Searches</h2>
+    <div class="recent-searches">
+        {% for search in recent_searches %}
+        <div class="search-item" style="display: flex; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #eee;">
+            <div class="search-meta" style="flex: 1;">
+                <h3>{{ search.query }}</h3>
+                <p>{{ search.created_at|date:"F j, Y, g:i a" }}</p>
+                <p>Total trees found: <strong>{{ search.total_trees }}</strong></p>
+                <a href="{% url 'results' search.id %}" class="btn">View Results</a>
+            </div>
+            {% if search.images.first %}
+            <div class="search-image" style="margin-left: 1rem;">
+                <img src="{{ MEDIA_URL }}{{ search.images.first.image_path }}" style="width: 180px; height: 120px; object-fit: cover; border-radius: 4px;">
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+    input[type="text"] {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+    .lead {
+        font-size: 1.2rem;
+        color: #555;
+        margin-bottom: 2rem;
+    }
+    .spinner-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-top: 1.5rem;
+    }
+    .spinner {
+        border: 4px solid rgba(0, 0, 0, 0.1);
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border-left-color: #3399cc;
+        animation: spin 1s linear infinite;
+        margin-bottom: 0.5rem;
+    }
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchForm = document.getElementById('search-form');
+        const searchButton = document.getElementById('search-button');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        
+        if (searchForm) {
+            searchForm.addEventListener('submit', function() {
+                // Hide the search button
+                searchButton.style.display = 'none';
+                
+                // Show the loading spinner
+                loadingSpinner.style.display = 'flex';
+            });
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Register | Tree Act{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 500px; margin: 2rem auto;">
+    <h2>Register</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="id_username">Username</label>
+            <input type="text" name="username" id="id_username" class="form-control" required>
+        </div>
+        <div class="form-group">
+            <label for="id_email">Email</label>
+            <input type="email" name="email" id="id_email" class="form-control" required>
+        </div>
+        <div class="form-group">
+            <label for="id_password1">Password</label>
+            <input type="password" name="password1" id="id_password1" class="form-control" required>
+        </div>
+        <div class="form-group">
+            <label for="id_password2">Confirm Password</label>
+            <input type="password" name="password2" id="id_password2" class="form-control" required>
+        </div>
+        <button type="submit" class="btn">Register</button>
+    </form>
+    <p style="margin-top: 1.5rem;">
+        Already have an account? <a href="{% url 'login' %}">Login here</a>
+    </p>
+</div>
+{% endblock %}
